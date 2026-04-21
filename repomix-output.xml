@@ -1,0 +1,1421 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: api
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+api/.gitignore
+api/database.sql
+api/nodemon.json
+api/package.json
+api/src/config/database.ts
+api/src/controllers/authController.ts
+api/src/controllers/mainController.ts
+api/src/controllers/produtosController.ts
+api/src/middleware/auth.ts
+api/src/routes/index.ts
+api/src/server.ts
+api/src/types/index.ts
+api/tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="api/.gitignore">
+node_modules/
+.pnp
+.pnp.js
+
+dist/
+build/
+*.js.map
+*.d.ts.map
+
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env*.local
+
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.npm
+.eslintcache
+.cache/
+.parcel-cache/
+
+coverage/
+*.lcov
+.nyc_output/
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+uploads/
+tmp/
+temp/
+</file>
+
+<file path="api/database.sql">
+-- ============================================================
+--  SISTEMA MULTI-TENANT DE ESTOQUE
+--  Cada usuário que se registra cria sua própria empresa.
+--  Todos os dados são isolados por empresa_id.
+--  Execute no Supabase SQL Editor (DROP + recria tudo limpo)
+-- ============================================================
+
+-- Limpa tudo (ordem correta por dependências)
+DROP TABLE IF EXISTS itens_ordem_compra CASCADE;
+DROP TABLE IF EXISTS ordens_compra CASCADE;
+DROP TABLE IF EXISTS movimentacoes CASCADE;
+DROP TABLE IF EXISTS estoque CASCADE;
+DROP TABLE IF EXISTS produtos CASCADE;
+DROP TABLE IF EXISTS categorias CASCADE;
+DROP TABLE IF EXISTS fornecedores CASCADE;
+DROP TABLE IF EXISTS usuarios CASCADE;
+DROP TABLE IF EXISTS empresas CASCADE;
+DROP VIEW IF EXISTS vw_posicao_estoque CASCADE;
+DROP VIEW IF EXISTS vw_movimentacoes_mes CASCADE;
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ─── EMPRESAS (cada conta é uma empresa isolada) ─────────────
+CREATE TABLE empresas (
+  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nome           VARCHAR(200) NOT NULL,
+  cnpj           VARCHAR(18),
+  telefone       VARCHAR(20),
+  email_contato  VARCHAR(150),
+  endereco       VARCHAR(255),
+  cidade         VARCHAR(100),
+  estado         VARCHAR(2),
+  criado_em      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  atualizado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ─── USUÁRIOS (pertencem a uma empresa) ──────────────────────
+CREATE TABLE usuarios (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  empresa_id    UUID NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  nome          VARCHAR(150) NOT NULL,
+  email         VARCHAR(150) NOT NULL UNIQUE,
+  senha_hash    TEXT NOT NULL,
+  perfil        VARCHAR(20) NOT NULL DEFAULT 'operador'
+                  CHECK (perfil IN ('admin', 'gerente', 'operador')),
+  ativo         BOOLEAN NOT NULL DEFAULT TRUE,
+  criado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ─── CATEGORIAS (por empresa) ─────────────────────────────────
+CREATE TABLE categorias (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  empresa_id UUID NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  nome       VARCHAR(100) NOT NULL,
+  descricao  TEXT,
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (empresa_id, nome)   -- mesmo nome pode existir em empresas diferentes
+);
+
+-- ─── FORNECEDORES (por empresa) ───────────────────────────────
+CREATE TABLE fornecedores (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  empresa_id    UUID NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  nome          VARCHAR(150) NOT NULL,
+  cnpj          VARCHAR(18),
+  email         VARCHAR(150),
+  telefone      VARCHAR(20),
+  endereco      VARCHAR(255),
+  cidade        VARCHAR(100),
+  estado        VARCHAR(2),
+  cep           VARCHAR(10),
+  contato_nome  VARCHAR(150),
+  ativo         BOOLEAN NOT NULL DEFAULT TRUE,
+  criado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (empresa_id, cnpj)
+);
+
+-- ─── PRODUTOS (por empresa) ───────────────────────────────────
+CREATE TABLE produtos (
+  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  empresa_id     UUID NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  codigo         VARCHAR(50) NOT NULL,
+  nome           VARCHAR(200) NOT NULL,
+  descricao      TEXT,
+  categoria_id   UUID REFERENCES categorias(id) ON DELETE SET NULL,
+  fornecedor_id  UUID REFERENCES fornecedores(id) ON DELETE SET NULL,
+  preco_custo    NUMERIC(12,2) NOT NULL DEFAULT 0,
+  preco_venda    NUMERIC(12,2) NOT NULL DEFAULT 0,
+  unidade_medida VARCHAR(10) NOT NULL DEFAULT 'UN',
+  estoque_minimo NUMERIC(12,3) NOT NULL DEFAULT 0,
+  estoque_maximo NUMERIC(12,3) NOT NULL DEFAULT 9999,
+  ativo          BOOLEAN NOT NULL DEFAULT TRUE,
+  criado_em      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  atualizado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (empresa_id, codigo)  -- mesmo código pode existir em empresas diferentes
+);
+
+-- ─── ESTOQUE (por produto) ────────────────────────────────────
+CREATE TABLE estoque (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  produto_id    UUID NOT NULL UNIQUE REFERENCES produtos(id) ON DELETE CASCADE,
+  quantidade    NUMERIC(12,3) NOT NULL DEFAULT 0,
+  localizacao   VARCHAR(100),
+  lote          VARCHAR(100),
+  data_validade DATE,
+  atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ─── MOVIMENTAÇÕES (por empresa) ─────────────────────────────
+CREATE TABLE movimentacoes (
+  id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  empresa_id           UUID NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  produto_id           UUID NOT NULL REFERENCES produtos(id),
+  tipo                 VARCHAR(20) NOT NULL
+                         CHECK (tipo IN ('entrada','saida','ajuste','transferencia')),
+  quantidade           NUMERIC(12,3) NOT NULL,
+  quantidade_anterior  NUMERIC(12,3) NOT NULL,
+  quantidade_posterior NUMERIC(12,3) NOT NULL,
+  motivo               TEXT,
+  referencia           VARCHAR(100),
+  usuario_id           UUID NOT NULL REFERENCES usuarios(id),
+  fornecedor_id        UUID REFERENCES fornecedores(id),
+  preco_unitario       NUMERIC(12,2),
+  criado_em            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ─── ORDENS DE COMPRA (por empresa) ──────────────────────────
+CREATE TABLE ordens_compra (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  empresa_id    UUID NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  fornecedor_id UUID NOT NULL REFERENCES fornecedores(id),
+  usuario_id    UUID NOT NULL REFERENCES usuarios(id),
+  status        VARCHAR(20) NOT NULL DEFAULT 'rascunho'
+                  CHECK (status IN ('rascunho','enviada','aprovada','recebida','cancelada')),
+  valor_total   NUMERIC(14,2) NOT NULL DEFAULT 0,
+  observacoes   TEXT,
+  data_prevista DATE,
+  criado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ─── ITENS DA ORDEM DE COMPRA ─────────────────────────────────
+CREATE TABLE itens_ordem_compra (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  ordem_compra_id UUID NOT NULL REFERENCES ordens_compra(id) ON DELETE CASCADE,
+  produto_id      UUID NOT NULL REFERENCES produtos(id),
+  quantidade      NUMERIC(12,3) NOT NULL,
+  preco_unitario  NUMERIC(12,2) NOT NULL,
+  subtotal        NUMERIC(14,2) NOT NULL
+);
+
+-- ─── ÍNDICES ──────────────────────────────────────────────────
+CREATE INDEX idx_usuarios_empresa       ON usuarios(empresa_id);
+CREATE INDEX idx_categorias_empresa     ON categorias(empresa_id);
+CREATE INDEX idx_fornecedores_empresa   ON fornecedores(empresa_id);
+CREATE INDEX idx_produtos_empresa       ON produtos(empresa_id);
+CREATE INDEX idx_produtos_codigo        ON produtos(empresa_id, codigo);
+CREATE INDEX idx_estoque_produto        ON estoque(produto_id);
+CREATE INDEX idx_movimentacoes_empresa  ON movimentacoes(empresa_id);
+CREATE INDEX idx_movimentacoes_produto  ON movimentacoes(produto_id);
+CREATE INDEX idx_movimentacoes_tipo     ON movimentacoes(tipo);
+CREATE INDEX idx_movimentacoes_data     ON movimentacoes(criado_em DESC);
+CREATE INDEX idx_ordens_empresa         ON ordens_compra(empresa_id);
+CREATE INDEX idx_ordens_status          ON ordens_compra(status);
+CREATE INDEX idx_itens_ordem            ON itens_ordem_compra(ordem_compra_id);
+
+-- ─── VIEW: POSIÇÃO DE ESTOQUE ─────────────────────────────────
+CREATE OR REPLACE VIEW vw_posicao_estoque AS
+SELECT
+  p.empresa_id,
+  p.id, p.codigo, p.nome, p.unidade_medida,
+  c.nome                            AS categoria,
+  f.nome                            AS fornecedor,
+  COALESCE(e.quantidade, 0)         AS estoque_atual,
+  p.estoque_minimo, p.estoque_maximo,
+  p.preco_custo, p.preco_venda,
+  COALESCE(e.quantidade,0) * p.preco_custo  AS valor_custo_total,
+  COALESCE(e.quantidade,0) * p.preco_venda  AS valor_venda_total,
+  CASE
+    WHEN COALESCE(e.quantidade,0) = 0                THEN 'zerado'
+    WHEN COALESCE(e.quantidade,0) <= p.estoque_minimo THEN 'critico'
+    WHEN COALESCE(e.quantidade,0) >= p.estoque_maximo THEN 'excesso'
+    ELSE 'normal'
+  END AS situacao,
+  p.ativo
+FROM produtos p
+LEFT JOIN estoque     e ON e.produto_id  = p.id
+LEFT JOIN categorias  c ON c.id          = p.categoria_id
+LEFT JOIN fornecedores f ON f.id         = p.fornecedor_id;
+</file>
+
+<file path="api/nodemon.json">
+{
+  "watch": ["src"],
+  "ext": "ts",
+  "ignore": ["src/**/*.spec.ts"],
+  "exec": "ts-node src/server.ts"
+}
+</file>
+
+<file path="api/package.json">
+{
+  "name": "api-estoque-multitenant",
+  "version": "1.0.0",
+  "description": "API REST Multi-Tenant Gerenciador de Estoque",
+  "main": "dist/server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon --exec ts-node src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-validator": "^7.3.2",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.20.0",
+    "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/pg": "^8.20.0",
+    "@types/uuid": "^10.0.0",
+    "nodemon": "^3.1.14",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
+</file>
+
+<file path="api/src/config/database.ts">
+import { Pool } from 'pg';
+import dotenv from 'dotenv';
+dotenv.config();
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+pool.on('connect', () => console.log('✅ Conectado ao PostgreSQL'));
+pool.on('error', (err) => console.error('❌ Erro no pool:', err));
+
+export default pool;
+</file>
+
+<file path="api/src/controllers/authController.ts">
+import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { v4 as uuidv4 } from 'uuid';
+import pool from '../config/database';
+
+// Registrar: cria empresa + usuário admin dono dela
+export const registrar = async (req: Request, res: Response): Promise<void> => {
+  const { nome, email, senha, nome_empresa } = req.body;
+
+  if (!nome || !email || !senha || !nome_empresa) {
+    res.status(400).json({ erro: 'nome, email, senha e nome_empresa são obrigatórios' });
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const existe = await client.query('SELECT id FROM usuarios WHERE email = $1', [email]);
+    if (existe.rows.length > 0) {
+      res.status(409).json({ erro: 'E-mail já cadastrado' });
+      return;
+    }
+
+    // Cria a empresa
+    const empresaId = uuidv4();
+    await client.query(
+      'INSERT INTO empresas (id, nome) VALUES ($1, $2)',
+      [empresaId, nome_empresa]
+    );
+
+    // Cria o usuário como admin da empresa
+    const usuarioId = uuidv4();
+    const senhaHash = await bcrypt.hash(senha, 12);
+    const result = await client.query(
+      `INSERT INTO usuarios (id, empresa_id, nome, email, senha_hash, perfil)
+       VALUES ($1, $2, $3, $4, $5, 'admin')
+       RETURNING id, nome, email, perfil, empresa_id`,
+      [usuarioId, empresaId, nome, email, senhaHash]
+    );
+
+    await client.query('COMMIT');
+
+    const token = jwt.sign(
+      { id: usuarioId, email, perfil: 'admin', empresa_id: empresaId },
+      process.env.JWT_SECRET!,
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      mensagem: 'Conta criada com sucesso!',
+      token,
+      usuario: result.rows[0],
+      empresa: { id: empresaId, nome: nome_empresa }
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ erro: 'Erro ao registrar', detalhe: String(err) });
+  } finally {
+    client.release();
+  }
+};
+
+// Login
+export const login = async (req: Request, res: Response): Promise<void> => {
+  const { email, senha } = req.body;
+  try {
+    const result = await pool.query(
+      `SELECT u.*, e.nome as empresa_nome
+       FROM usuarios u
+       JOIN empresas e ON e.id = u.empresa_id
+       WHERE u.email = $1 AND u.ativo = true`,
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(401).json({ erro: 'Credenciais inválidas' });
+      return;
+    }
+
+    const usuario = result.rows[0];
+    const senhaValida = await bcrypt.compare(senha, usuario.senha_hash);
+    if (!senhaValida) {
+      res.status(401).json({ erro: 'Credenciais inválidas' });
+      return;
+    }
+
+    const token = jwt.sign(
+      { id: usuario.id, email: usuario.email, perfil: usuario.perfil, empresa_id: usuario.empresa_id },
+      process.env.JWT_SECRET!,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      usuario: { id: usuario.id, nome: usuario.nome, email: usuario.email, perfil: usuario.perfil },
+      empresa: { id: usuario.empresa_id, nome: usuario.empresa_nome }
+    });
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao fazer login', detalhe: String(err) });
+  }
+};
+
+// Meu perfil
+export const meuPerfil = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.nome, u.email, u.perfil, u.ativo, u.criado_em,
+              e.id as empresa_id, e.nome as empresa_nome
+       FROM usuarios u JOIN empresas e ON e.id = u.empresa_id
+       WHERE u.id = $1`,
+      [req.usuario!.id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao buscar perfil', detalhe: String(err) });
+  }
+};
+
+// Convidar usuário para a mesma empresa
+export const convidarUsuario = async (req: Request, res: Response): Promise<void> => {
+  const { nome, email, senha, perfil = 'operador' } = req.body;
+  const empresa_id = req.usuario!.empresa_id;
+
+  try {
+    const existe = await pool.query('SELECT id FROM usuarios WHERE email = $1', [email]);
+    if (existe.rows.length > 0) {
+      res.status(409).json({ erro: 'E-mail já cadastrado' });
+      return;
+    }
+
+    const senhaHash = await bcrypt.hash(senha, 12);
+    const result = await pool.query(
+      `INSERT INTO usuarios (id, empresa_id, nome, email, senha_hash, perfil)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, nome, email, perfil`,
+      [uuidv4(), empresa_id, nome, email, senhaHash, perfil]
+    );
+
+    res.status(201).json({ mensagem: 'Usuário convidado com sucesso', usuario: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao convidar usuário', detalhe: String(err) });
+  }
+};
+
+// Listar usuários da minha empresa
+export const listarUsuarios = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      'SELECT id, nome, email, perfil, ativo, criado_em FROM usuarios WHERE empresa_id = $1 ORDER BY nome',
+      [req.usuario!.empresa_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao listar usuários', detalhe: String(err) });
+  }
+};
+
+// Alterar senha
+export const alterarSenha = async (req: Request, res: Response): Promise<void> => {
+  const { senha_atual, nova_senha } = req.body;
+  try {
+    const result = await pool.query('SELECT senha_hash FROM usuarios WHERE id = $1', [req.usuario!.id]);
+    const ok = await bcrypt.compare(senha_atual, result.rows[0].senha_hash);
+    if (!ok) { res.status(401).json({ erro: 'Senha atual incorreta' }); return; }
+    const hash = await bcrypt.hash(nova_senha, 12);
+    await pool.query('UPDATE usuarios SET senha_hash=$1, atualizado_em=NOW() WHERE id=$2', [hash, req.usuario!.id]);
+    res.json({ mensagem: 'Senha alterada com sucesso' });
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao alterar senha', detalhe: String(err) });
+  }
+};
+
+// Info da minha empresa
+export const minhaEmpresa = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query('SELECT * FROM empresas WHERE id = $1', [req.usuario!.empresa_id]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao buscar empresa', detalhe: String(err) });
+  }
+};
+
+// Atualizar dados da empresa
+export const atualizarEmpresa = async (req: Request, res: Response): Promise<void> => {
+  const { nome, cnpj, telefone, email_contato, endereco, cidade, estado } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE empresas SET nome=$1, cnpj=$2, telefone=$3, email_contato=$4,
+        endereco=$5, cidade=$6, estado=$7, atualizado_em=NOW()
+       WHERE id=$8 RETURNING *`,
+      [nome, cnpj, telefone, email_contato, endereco, cidade, estado, req.usuario!.empresa_id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao atualizar empresa', detalhe: String(err) });
+  }
+};
+</file>
+
+<file path="api/src/controllers/mainController.ts">
+import { Request, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import pool from '../config/database';
+
+// ─── CATEGORIAS ───────────────────────────────────────────────────────────────
+
+export const listarCategorias = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const result = await pool.query(
+      `SELECT c.*, COUNT(p.id) as total_produtos
+       FROM categorias c LEFT JOIN produtos p ON p.categoria_id = c.id AND p.ativo = true
+       WHERE c.empresa_id = $1 GROUP BY c.id ORDER BY c.nome`,
+      [empresa_id]
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao listar categorias', detalhe: String(err) }); }
+};
+
+export const criarCategoria = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { nome, descricao } = req.body;
+  try {
+    const result = await pool.query(
+      'INSERT INTO categorias (id, empresa_id, nome, descricao) VALUES ($1,$2,$3,$4) RETURNING *',
+      [uuidv4(), empresa_id, nome, descricao]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao criar categoria', detalhe: String(err) }); }
+};
+
+export const atualizarCategoria = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { nome, descricao } = req.body;
+  try {
+    const result = await pool.query(
+      'UPDATE categorias SET nome=$1, descricao=$2 WHERE id=$3 AND empresa_id=$4 RETURNING *',
+      [nome, descricao, req.params.id, empresa_id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ erro: 'Categoria não encontrada' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao atualizar categoria', detalhe: String(err) }); }
+};
+
+export const removerCategoria = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const emUso = await pool.query('SELECT id FROM produtos WHERE categoria_id=$1 AND empresa_id=$2 LIMIT 1', [req.params.id, empresa_id]);
+    if (emUso.rows.length > 0) { res.status(409).json({ erro: 'Categoria em uso por produtos' }); return; }
+    await pool.query('DELETE FROM categorias WHERE id=$1 AND empresa_id=$2', [req.params.id, empresa_id]);
+    res.json({ mensagem: 'Categoria removida' });
+  } catch (err) { res.status(500).json({ erro: 'Erro ao remover categoria', detalhe: String(err) }); }
+};
+
+// ─── FORNECEDORES ─────────────────────────────────────────────────────────────
+
+export const listarFornecedores = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { pagina = 1, limite = 20, busca, ativo } = req.query;
+  const offset = (Number(pagina) - 1) * Number(limite);
+  const params: unknown[] = [empresa_id];
+  const where: string[] = ['empresa_id = $1'];
+  if (busca) { params.push(`%${busca}%`); where.push(`(nome ILIKE $${params.length} OR cnpj ILIKE $${params.length})`); }
+  if (ativo !== undefined) { params.push(ativo === 'true'); where.push(`ativo = $${params.length}`); }
+  const whereClause = `WHERE ${where.join(' AND ')}`;
+  try {
+    const total = await pool.query(`SELECT COUNT(*) FROM fornecedores ${whereClause}`, params);
+    params.push(Number(limite), offset);
+    const result = await pool.query(
+      `SELECT * FROM fornecedores ${whereClause} ORDER BY nome LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+    res.json({ dados: result.rows, paginacao: { total: Number(total.rows[0].count), pagina: Number(pagina), limite: Number(limite), paginas: Math.ceil(Number(total.rows[0].count) / Number(limite)) } });
+  } catch (err) { res.status(500).json({ erro: 'Erro ao listar fornecedores', detalhe: String(err) }); }
+};
+
+export const buscarFornecedorPorId = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const result = await pool.query('SELECT * FROM fornecedores WHERE id=$1 AND empresa_id=$2', [req.params.id, empresa_id]);
+    if (result.rows.length === 0) { res.status(404).json({ erro: 'Fornecedor não encontrado' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao buscar fornecedor', detalhe: String(err) }); }
+};
+
+export const criarFornecedor = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { nome, cnpj, email, telefone, endereco, cidade, estado, cep, contato_nome } = req.body;
+  try {
+    if (cnpj) {
+      const existe = await pool.query('SELECT id FROM fornecedores WHERE cnpj=$1 AND empresa_id=$2', [cnpj, empresa_id]);
+      if (existe.rows.length > 0) { res.status(409).json({ erro: 'CNPJ já cadastrado' }); return; }
+    }
+    const result = await pool.query(
+      `INSERT INTO fornecedores (id, empresa_id, nome, cnpj, email, telefone, endereco, cidade, estado, cep, contato_nome)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [uuidv4(), empresa_id, nome, cnpj, email, telefone, endereco, cidade, estado, cep, contato_nome]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao criar fornecedor', detalhe: String(err) }); }
+};
+
+export const atualizarFornecedor = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { nome, cnpj, email, telefone, endereco, cidade, estado, cep, contato_nome, ativo } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE fornecedores SET nome=$1, cnpj=$2, email=$3, telefone=$4, endereco=$5,
+        cidade=$6, estado=$7, cep=$8, contato_nome=$9, ativo=$10, atualizado_em=NOW()
+       WHERE id=$11 AND empresa_id=$12 RETURNING *`,
+      [nome, cnpj, email, telefone, endereco, cidade, estado, cep, contato_nome, ativo, req.params.id, empresa_id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ erro: 'Fornecedor não encontrado' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao atualizar fornecedor', detalhe: String(err) }); }
+};
+
+export const removerFornecedor = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    await pool.query('UPDATE fornecedores SET ativo=false, atualizado_em=NOW() WHERE id=$1 AND empresa_id=$2', [req.params.id, empresa_id]);
+    res.json({ mensagem: 'Fornecedor desativado' });
+  } catch (err) { res.status(500).json({ erro: 'Erro ao remover fornecedor', detalhe: String(err) }); }
+};
+
+export const produtosPorFornecedor = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const result = await pool.query(
+      `SELECT p.*, COALESCE(e.quantidade, 0) as estoque_atual
+       FROM produtos p LEFT JOIN estoque e ON e.produto_id = p.id
+       WHERE p.fornecedor_id=$1 AND p.empresa_id=$2 AND p.ativo=true ORDER BY p.nome`,
+      [req.params.id, empresa_id]
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao buscar produtos do fornecedor', detalhe: String(err) }); }
+};
+
+// ─── ESTOQUE ──────────────────────────────────────────────────────────────────
+
+export const listarEstoque = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { pagina = 1, limite = 20, busca } = req.query;
+  const offset = (Number(pagina) - 1) * Number(limite);
+  const params: unknown[] = [empresa_id];
+  const where: string[] = ['p.empresa_id = $1'];
+  if (busca) { params.push(`%${busca}%`); where.push(`(p.nome ILIKE $${params.length} OR p.codigo ILIKE $${params.length})`); }
+  const whereClause = `WHERE ${where.join(' AND ')}`;
+  try {
+    const total = await pool.query(`SELECT COUNT(*) FROM estoque e JOIN produtos p ON p.id=e.produto_id ${whereClause}`, params);
+    params.push(Number(limite), offset);
+    const result = await pool.query(
+      `SELECT e.*, p.nome as produto_nome, p.codigo as produto_codigo, p.unidade_medida,
+              p.estoque_minimo, p.estoque_maximo, p.preco_custo, p.preco_venda,
+              CASE WHEN e.quantidade <= p.estoque_minimo THEN true ELSE false END as alerta_minimo,
+              e.quantidade * p.preco_custo as valor_total_custo,
+              e.quantidade * p.preco_venda as valor_total_venda
+       FROM estoque e JOIN produtos p ON p.id=e.produto_id
+       ${whereClause} ORDER BY p.nome
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+    res.json({ dados: result.rows, paginacao: { total: Number(total.rows[0].count), pagina: Number(pagina), limite: Number(limite), paginas: Math.ceil(Number(total.rows[0].count) / Number(limite)) } });
+  } catch (err) { res.status(500).json({ erro: 'Erro ao listar estoque', detalhe: String(err) }); }
+};
+
+export const resumoEstoque = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(DISTINCT p.id) as total_produtos,
+              SUM(e.quantidade) as total_itens,
+              SUM(e.quantidade * p.preco_custo) as valor_total_custo,
+              SUM(e.quantidade * p.preco_venda) as valor_total_venda,
+              COUNT(CASE WHEN e.quantidade <= p.estoque_minimo THEN 1 END) as produtos_abaixo_minimo,
+              COUNT(CASE WHEN e.quantidade = 0 THEN 1 END) as produtos_zerados
+       FROM estoque e JOIN produtos p ON p.id=e.produto_id WHERE p.empresa_id=$1 AND p.ativo=true`,
+      [empresa_id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao buscar resumo', detalhe: String(err) }); }
+};
+
+export const ajustarEstoque = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { produto_id, nova_quantidade, motivo } = req.body;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Verifica que produto pertence à empresa
+    const prod = await client.query('SELECT id FROM produtos WHERE id=$1 AND empresa_id=$2', [produto_id, empresa_id]);
+    if (prod.rows.length === 0) { res.status(404).json({ erro: 'Produto não encontrado' }); return; }
+
+    const est = await client.query('SELECT quantidade FROM estoque WHERE produto_id=$1 FOR UPDATE', [produto_id]);
+    const qtdAnterior = Number(est.rows[0].quantidade);
+
+    await client.query('UPDATE estoque SET quantidade=$1, atualizado_em=NOW() WHERE produto_id=$2', [nova_quantidade, produto_id]);
+    await client.query(
+      `INSERT INTO movimentacoes (id, empresa_id, produto_id, tipo, quantidade, quantidade_anterior, quantidade_posterior, motivo, usuario_id)
+       VALUES ($1,$2,$3,'ajuste',$4,$5,$6,$7,$8)`,
+      [uuidv4(), empresa_id, produto_id, Math.abs(nova_quantidade - qtdAnterior), qtdAnterior, nova_quantidade, motivo, req.usuario!.id]
+    );
+    await client.query('COMMIT');
+    res.json({ mensagem: 'Estoque ajustado', quantidade_anterior: qtdAnterior, nova_quantidade });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ erro: 'Erro ao ajustar estoque', detalhe: String(err) });
+  } finally { client.release(); }
+};
+
+// ─── MOVIMENTAÇÕES ────────────────────────────────────────────────────────────
+
+export const listarMovimentacoes = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { pagina = 1, limite = 20, tipo, produto_id, data_inicio, data_fim } = req.query;
+  const offset = (Number(pagina) - 1) * Number(limite);
+  const params: unknown[] = [empresa_id];
+  const where: string[] = ['m.empresa_id = $1'];
+  if (tipo) { params.push(tipo); where.push(`m.tipo = $${params.length}`); }
+  if (produto_id) { params.push(produto_id); where.push(`m.produto_id = $${params.length}`); }
+  if (data_inicio) { params.push(data_inicio); where.push(`m.criado_em >= $${params.length}::date`); }
+  if (data_fim) { params.push(data_fim); where.push(`m.criado_em <= $${params.length}::date`); }
+  const whereClause = `WHERE ${where.join(' AND ')}`;
+  try {
+    const total = await pool.query(`SELECT COUNT(*) FROM movimentacoes m ${whereClause}`, params);
+    params.push(Number(limite), offset);
+    const result = await pool.query(
+      `SELECT m.*, p.nome as produto_nome, p.codigo as produto_codigo,
+              u.nome as usuario_nome, f.nome as fornecedor_nome
+       FROM movimentacoes m
+       JOIN produtos p ON p.id=m.produto_id
+       JOIN usuarios u ON u.id=m.usuario_id
+       LEFT JOIN fornecedores f ON f.id=m.fornecedor_id
+       ${whereClause} ORDER BY m.criado_em DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+    res.json({ dados: result.rows, paginacao: { total: Number(total.rows[0].count), pagina: Number(pagina), limite: Number(limite), paginas: Math.ceil(Number(total.rows[0].count) / Number(limite)) } });
+  } catch (err) { res.status(500).json({ erro: 'Erro ao listar movimentações', detalhe: String(err) }); }
+};
+
+const registrarMovimento = async (
+  req: Request, res: Response,
+  tipo: 'entrada' | 'saida'
+): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { produto_id, quantidade, motivo, referencia, fornecedor_id, preco_unitario } = req.body;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const prod = await client.query('SELECT id FROM produtos WHERE id=$1 AND empresa_id=$2', [produto_id, empresa_id]);
+    if (prod.rows.length === 0) { res.status(404).json({ erro: 'Produto não encontrado' }); return; }
+
+    const est = await client.query('SELECT quantidade FROM estoque WHERE produto_id=$1 FOR UPDATE', [produto_id]);
+    const qtdAnterior = Number(est.rows[0].quantidade);
+
+    if (tipo === 'saida' && qtdAnterior < Number(quantidade)) {
+      res.status(400).json({ erro: 'Estoque insuficiente', disponivel: qtdAnterior });
+      return;
+    }
+
+    const qtdPosterior = tipo === 'entrada' ? qtdAnterior + Number(quantidade) : qtdAnterior - Number(quantidade);
+    await client.query('UPDATE estoque SET quantidade=$1, atualizado_em=NOW() WHERE produto_id=$2', [qtdPosterior, produto_id]);
+
+    const result = await client.query(
+      `INSERT INTO movimentacoes (id, empresa_id, produto_id, tipo, quantidade, quantidade_anterior,
+        quantidade_posterior, motivo, referencia, usuario_id, fornecedor_id, preco_unitario)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [uuidv4(), empresa_id, produto_id, tipo, quantidade, qtdAnterior, qtdPosterior,
+       motivo, referencia, req.usuario!.id, fornecedor_id || null, preco_unitario || null]
+    );
+    await client.query('COMMIT');
+    res.status(201).json({ mensagem: `${tipo === 'entrada' ? 'Entrada' : 'Saída'} registrada`, movimentacao: result.rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ erro: `Erro ao registrar ${tipo}`, detalhe: String(err) });
+  } finally { client.release(); }
+};
+
+export const registrarEntrada = (req: Request, res: Response) => registrarMovimento(req, res, 'entrada');
+export const registrarSaida = (req: Request, res: Response) => registrarMovimento(req, res, 'saida');
+
+export const buscarMovimentacaoPorId = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const result = await pool.query(
+      `SELECT m.*, p.nome as produto_nome, u.nome as usuario_nome, f.nome as fornecedor_nome
+       FROM movimentacoes m JOIN produtos p ON p.id=m.produto_id
+       JOIN usuarios u ON u.id=m.usuario_id LEFT JOIN fornecedores f ON f.id=m.fornecedor_id
+       WHERE m.id=$1 AND m.empresa_id=$2`,
+      [req.params.id, empresa_id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ erro: 'Movimentação não encontrada' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao buscar movimentação', detalhe: String(err) }); }
+};
+
+// ─── ORDENS DE COMPRA ─────────────────────────────────────────────────────────
+
+export const listarOrdens = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { pagina = 1, limite = 20, status, fornecedor_id } = req.query;
+  const offset = (Number(pagina) - 1) * Number(limite);
+  const params: unknown[] = [empresa_id];
+  const where: string[] = ['oc.empresa_id = $1'];
+  if (status) { params.push(status); where.push(`oc.status = $${params.length}`); }
+  if (fornecedor_id) { params.push(fornecedor_id); where.push(`oc.fornecedor_id = $${params.length}`); }
+  const whereClause = `WHERE ${where.join(' AND ')}`;
+  try {
+    const total = await pool.query(`SELECT COUNT(*) FROM ordens_compra oc ${whereClause}`, params);
+    params.push(Number(limite), offset);
+    const result = await pool.query(
+      `SELECT oc.*, f.nome as fornecedor_nome, u.nome as usuario_nome
+       FROM ordens_compra oc JOIN fornecedores f ON f.id=oc.fornecedor_id JOIN usuarios u ON u.id=oc.usuario_id
+       ${whereClause} ORDER BY oc.criado_em DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+    res.json({ dados: result.rows, paginacao: { total: Number(total.rows[0].count), pagina: Number(pagina), limite: Number(limite), paginas: Math.ceil(Number(total.rows[0].count) / Number(limite)) } });
+  } catch (err) { res.status(500).json({ erro: 'Erro ao listar ordens', detalhe: String(err) }); }
+};
+
+export const buscarOrdemPorId = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const ordem = await pool.query(
+      `SELECT oc.*, f.nome as fornecedor_nome, u.nome as usuario_nome
+       FROM ordens_compra oc JOIN fornecedores f ON f.id=oc.fornecedor_id JOIN usuarios u ON u.id=oc.usuario_id
+       WHERE oc.id=$1 AND oc.empresa_id=$2`,
+      [req.params.id, empresa_id]
+    );
+    if (ordem.rows.length === 0) { res.status(404).json({ erro: 'Ordem não encontrada' }); return; }
+    const itens = await pool.query(
+      `SELECT ioc.*, p.nome as produto_nome, p.codigo as produto_codigo
+       FROM itens_ordem_compra ioc JOIN produtos p ON p.id=ioc.produto_id
+       WHERE ioc.ordem_compra_id=$1`,
+      [req.params.id]
+    );
+    res.json({ ...ordem.rows[0], itens: itens.rows });
+  } catch (err) { res.status(500).json({ erro: 'Erro ao buscar ordem', detalhe: String(err) }); }
+};
+
+export const criarOrdem = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { fornecedor_id, observacoes, data_prevista, itens } = req.body;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const id = uuidv4();
+    const valorTotal = itens.reduce((s: number, i: { quantidade: number; preco_unitario: number }) => s + i.quantidade * i.preco_unitario, 0);
+    const ordem = await client.query(
+      `INSERT INTO ordens_compra (id, empresa_id, fornecedor_id, usuario_id, valor_total, observacoes, data_prevista)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [id, empresa_id, fornecedor_id, req.usuario!.id, valorTotal, observacoes, data_prevista]
+    );
+    for (const item of itens) {
+      await client.query(
+        `INSERT INTO itens_ordem_compra (id, ordem_compra_id, produto_id, quantidade, preco_unitario, subtotal)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [uuidv4(), id, item.produto_id, item.quantidade, item.preco_unitario, item.quantidade * item.preco_unitario]
+      );
+    }
+    await client.query('COMMIT');
+    res.status(201).json({ mensagem: 'Ordem criada', ordem: ordem.rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ erro: 'Erro ao criar ordem', detalhe: String(err) });
+  } finally { client.release(); }
+};
+
+export const atualizarStatusOrdem = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { status } = req.body;
+  if (!['rascunho','enviada','aprovada','recebida','cancelada'].includes(status)) {
+    res.status(400).json({ erro: 'Status inválido' }); return;
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      'UPDATE ordens_compra SET status=$1, atualizado_em=NOW() WHERE id=$2 AND empresa_id=$3 RETURNING *',
+      [status, req.params.id, empresa_id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ erro: 'Ordem não encontrada' }); return; }
+
+    if (status === 'recebida') {
+      const itens = await client.query('SELECT * FROM itens_ordem_compra WHERE ordem_compra_id=$1', [req.params.id]);
+      for (const item of itens.rows) {
+        const est = await client.query('SELECT quantidade FROM estoque WHERE produto_id=$1 FOR UPDATE', [item.produto_id]);
+        const qtdAnterior = Number(est.rows[0]?.quantidade || 0);
+        const qtdPosterior = qtdAnterior + Number(item.quantidade);
+        await client.query('UPDATE estoque SET quantidade=$1, atualizado_em=NOW() WHERE produto_id=$2', [qtdPosterior, item.produto_id]);
+        await client.query(
+          `INSERT INTO movimentacoes (id, empresa_id, produto_id, tipo, quantidade, quantidade_anterior,
+            quantidade_posterior, motivo, referencia, usuario_id, preco_unitario)
+           VALUES ($1,$2,$3,'entrada',$4,$5,$6,$7,$8,$9,$10)`,
+          [uuidv4(), empresa_id, item.produto_id, item.quantidade, qtdAnterior, qtdPosterior,
+           `Recebimento OC #${req.params.id}`, req.params.id, req.usuario!.id, item.preco_unitario]
+        );
+      }
+    }
+    await client.query('COMMIT');
+    res.json({ mensagem: `Status atualizado para "${status}"`, ordem: result.rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ erro: 'Erro ao atualizar status', detalhe: String(err) });
+  } finally { client.release(); }
+};
+
+// ─── RELATÓRIOS ───────────────────────────────────────────────────────────────
+
+export const dashboard = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const [estoque, movs, ordens, alertas] = await Promise.all([
+      pool.query(`SELECT COUNT(DISTINCT p.id) as total_produtos, SUM(e.quantidade*p.preco_custo) as valor_custo, SUM(e.quantidade*p.preco_venda) as valor_venda FROM estoque e JOIN produtos p ON p.id=e.produto_id WHERE p.empresa_id=$1 AND p.ativo=true`, [empresa_id]),
+      pool.query(`SELECT tipo, COUNT(*) as total, SUM(quantidade) as quantidade FROM movimentacoes WHERE empresa_id=$1 AND criado_em >= NOW()-INTERVAL '30 days' GROUP BY tipo`, [empresa_id]),
+      pool.query(`SELECT status, COUNT(*) as total FROM ordens_compra WHERE empresa_id=$1 GROUP BY status`, [empresa_id]),
+      pool.query(`SELECT COUNT(*) as produtos_abaixo_minimo FROM estoque e JOIN produtos p ON p.id=e.produto_id WHERE p.empresa_id=$1 AND e.quantidade<=p.estoque_minimo AND p.ativo=true`, [empresa_id])
+    ]);
+    res.json({ estoque: estoque.rows[0], movimentacoes_30d: movs.rows, ordens_compra: ordens.rows, alertas: alertas.rows[0] });
+  } catch (err) { res.status(500).json({ erro: 'Erro ao gerar dashboard', detalhe: String(err) }); }
+};
+
+export const valorizacaoEstoque = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const result = await pool.query(
+      `SELECT c.nome as categoria, COUNT(p.id) as total_produtos, SUM(e.quantidade) as total_quantidade,
+              SUM(e.quantidade*p.preco_custo) as valor_custo, SUM(e.quantidade*p.preco_venda) as valor_venda,
+              SUM(e.quantidade*(p.preco_venda-p.preco_custo)) as margem_total
+       FROM estoque e JOIN produtos p ON p.id=e.produto_id LEFT JOIN categorias c ON c.id=p.categoria_id
+       WHERE p.empresa_id=$1 AND p.ativo=true GROUP BY c.nome ORDER BY valor_venda DESC`,
+      [empresa_id]
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao gerar valorização', detalhe: String(err) }); }
+};
+
+export const movimentacoesPorPeriodo = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { data_inicio, data_fim, agrupamento = 'dia' } = req.query;
+  const fmt: Record<string, string> = { dia: 'YYYY-MM-DD', semana: 'IYYY-IW', mes: 'YYYY-MM' };
+  try {
+    const result = await pool.query(
+      `SELECT TO_CHAR(criado_em,$1) as periodo, tipo, COUNT(*) as operacoes,
+              SUM(quantidade) as quantidade_total, SUM(quantidade*COALESCE(preco_unitario,0)) as valor_total
+       FROM movimentacoes WHERE empresa_id=$2
+         AND ($3::date IS NULL OR criado_em>=$3::date) AND ($4::date IS NULL OR criado_em<=$4::date)
+       GROUP BY periodo, tipo ORDER BY periodo DESC, tipo`,
+      [fmt[String(agrupamento)] || fmt.dia, empresa_id, data_inicio || null, data_fim || null]
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao gerar relatório', detalhe: String(err) }); }
+};
+
+export const produtosMaisMovimentados = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { limite = 10, tipo, data_inicio, data_fim } = req.query;
+  const params: unknown[] = [empresa_id, Number(limite)];
+  const where: string[] = ['m.empresa_id = $1'];
+  if (tipo) { params.push(tipo); where.push(`m.tipo = $${params.length}`); }
+  if (data_inicio) { params.push(data_inicio); where.push(`m.criado_em >= $${params.length}::date`); }
+  if (data_fim) { params.push(data_fim); where.push(`m.criado_em <= $${params.length}::date`); }
+  try {
+    const result = await pool.query(
+      `SELECT p.id, p.codigo, p.nome, COUNT(m.id) as total_movimentacoes,
+              SUM(m.quantidade) as quantidade_total, SUM(m.quantidade*COALESCE(m.preco_unitario,0)) as valor_total
+       FROM movimentacoes m JOIN produtos p ON p.id=m.produto_id
+       WHERE ${where.join(' AND ')}
+       GROUP BY p.id, p.codigo, p.nome ORDER BY quantidade_total DESC LIMIT $2`,
+      params
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ erro: 'Erro ao gerar relatório', detalhe: String(err) }); }
+};
+</file>
+
+<file path="api/src/controllers/produtosController.ts">
+import { Request, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import pool from '../config/database';
+
+export const listar = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { pagina = 1, limite = 20, busca, categoria_id, fornecedor_id, ativo } = req.query;
+  const offset = (Number(pagina) - 1) * Number(limite);
+  const params: unknown[] = [empresa_id];
+  const where: string[] = ['p.empresa_id = $1'];
+
+  if (busca) { params.push(`%${busca}%`); where.push(`(p.nome ILIKE $${params.length} OR p.codigo ILIKE $${params.length})`); }
+  if (categoria_id) { params.push(categoria_id); where.push(`p.categoria_id = $${params.length}`); }
+  if (fornecedor_id) { params.push(fornecedor_id); where.push(`p.fornecedor_id = $${params.length}`); }
+  if (ativo !== undefined) { params.push(ativo === 'true'); where.push(`p.ativo = $${params.length}`); }
+
+  const whereClause = `WHERE ${where.join(' AND ')}`;
+
+  try {
+    const total = await pool.query(`SELECT COUNT(*) FROM produtos p ${whereClause}`, params);
+    params.push(Number(limite), offset);
+
+    const result = await pool.query(
+      `SELECT p.*, c.nome as categoria_nome, f.nome as fornecedor_nome,
+              COALESCE(e.quantidade, 0) as estoque_atual,
+              CASE WHEN COALESCE(e.quantidade,0) <= p.estoque_minimo THEN true ELSE false END as alerta_minimo
+       FROM produtos p
+       LEFT JOIN categorias c ON c.id = p.categoria_id AND c.empresa_id = $1
+       LEFT JOIN fornecedores f ON f.id = p.fornecedor_id AND f.empresa_id = $1
+       LEFT JOIN estoque e ON e.produto_id = p.id
+       ${whereClause}
+       ORDER BY p.nome
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    res.json({
+      dados: result.rows,
+      paginacao: { total: Number(total.rows[0].count), pagina: Number(pagina), limite: Number(limite), paginas: Math.ceil(Number(total.rows[0].count) / Number(limite)) }
+    });
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao listar produtos', detalhe: String(err) });
+  }
+};
+
+export const buscarPorId = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const result = await pool.query(
+      `SELECT p.*, c.nome as categoria_nome, f.nome as fornecedor_nome,
+              COALESCE(e.quantidade, 0) as estoque_atual
+       FROM produtos p
+       LEFT JOIN categorias c ON c.id = p.categoria_id
+       LEFT JOIN fornecedores f ON f.id = p.fornecedor_id
+       LEFT JOIN estoque e ON e.produto_id = p.id
+       WHERE p.id = $1 AND p.empresa_id = $2`,
+      [req.params.id, empresa_id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ erro: 'Produto não encontrado' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao buscar produto', detalhe: String(err) });
+  }
+};
+
+export const criar = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { codigo, nome, descricao, categoria_id, fornecedor_id, preco_custo, preco_venda,
+          unidade_medida = 'UN', estoque_minimo = 0, estoque_maximo = 9999,
+          estoque_atual = 0 } = req.body;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const existe = await client.query('SELECT id FROM produtos WHERE codigo = $1 AND empresa_id = $2', [codigo, empresa_id]);
+    if (existe.rows.length > 0) { res.status(409).json({ erro: 'Código já existe nesta empresa' }); return; }
+
+    const id = uuidv4();
+    const result = await client.query(
+      `INSERT INTO produtos (id, empresa_id, codigo, nome, descricao, categoria_id, fornecedor_id,
+        preco_custo, preco_venda, unidade_medida, estoque_minimo, estoque_maximo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [id, empresa_id, codigo, nome, descricao, categoria_id, fornecedor_id,
+       preco_custo, preco_venda, unidade_medida, estoque_minimo, estoque_maximo]
+    );
+
+    // Cria estoque com quantidade inicial informada (default 0)
+    await client.query(
+      'INSERT INTO estoque (id, produto_id, quantidade) VALUES ($1,$2,$3)',
+      [uuidv4(), id, Number(estoque_atual)]
+    );
+
+    // Se veio com estoque > 0, registra movimentação de entrada inicial
+    if (Number(estoque_atual) > 0) {
+      await client.query(
+        `INSERT INTO movimentacoes
+           (id, empresa_id, produto_id, tipo, quantidade, quantidade_anterior,
+            quantidade_posterior, motivo, usuario_id)
+         VALUES ($1,$2,$3,'entrada',$4,0,$5,'Estoque inicial no cadastro do produto',$6)`,
+        [uuidv4(), empresa_id, id, Number(estoque_atual), Number(estoque_atual), req.usuario!.id]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json({ ...result.rows[0], estoque_atual: Number(estoque_atual) });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ erro: 'Erro ao criar produto', detalhe: String(err) });
+  } finally {
+    client.release();
+  }
+};
+
+export const atualizar = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { nome, descricao, categoria_id, fornecedor_id, preco_custo, preco_venda,
+          unidade_medida, estoque_minimo, estoque_maximo, ativo } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE produtos SET nome=$1, descricao=$2, categoria_id=$3, fornecedor_id=$4,
+        preco_custo=$5, preco_venda=$6, unidade_medida=$7, estoque_minimo=$8,
+        estoque_maximo=$9, ativo=$10, atualizado_em=NOW()
+       WHERE id=$11 AND empresa_id=$12 RETURNING *`,
+      [nome, descricao, categoria_id, fornecedor_id, preco_custo, preco_venda,
+       unidade_medida, estoque_minimo, estoque_maximo, ativo, req.params.id, empresa_id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ erro: 'Produto não encontrado' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao atualizar produto', detalhe: String(err) });
+  }
+};
+
+export const remover = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const result = await pool.query(
+      'UPDATE produtos SET ativo=false, atualizado_em=NOW() WHERE id=$1 AND empresa_id=$2 RETURNING id',
+      [req.params.id, empresa_id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ erro: 'Produto não encontrado' }); return; }
+    res.json({ mensagem: 'Produto desativado' });
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao remover produto', detalhe: String(err) });
+  }
+};
+
+export const historico = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  const { pagina = 1, limite = 20 } = req.query;
+  const offset = (Number(pagina) - 1) * Number(limite);
+  try {
+    // Garante que o produto pertence à empresa
+    const prod = await pool.query('SELECT id FROM produtos WHERE id=$1 AND empresa_id=$2', [req.params.id, empresa_id]);
+    if (prod.rows.length === 0) { res.status(404).json({ erro: 'Produto não encontrado' }); return; }
+
+    const result = await pool.query(
+      `SELECT m.*, u.nome as usuario_nome FROM movimentacoes m
+       JOIN usuarios u ON u.id = m.usuario_id
+       WHERE m.produto_id = $1 ORDER BY m.criado_em DESC LIMIT $2 OFFSET $3`,
+      [req.params.id, Number(limite), offset]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao buscar histórico', detalhe: String(err) });
+  }
+};
+
+export const abaixoMinimo = async (req: Request, res: Response): Promise<void> => {
+  const empresa_id = req.usuario!.empresa_id;
+  try {
+    const result = await pool.query(
+      `SELECT p.*, COALESCE(e.quantidade,0) as estoque_atual,
+              (p.estoque_minimo - COALESCE(e.quantidade,0)) as quantidade_necessaria
+       FROM produtos p LEFT JOIN estoque e ON e.produto_id = p.id
+       WHERE p.empresa_id=$1 AND COALESCE(e.quantidade,0) < p.estoque_minimo AND p.ativo=true
+       ORDER BY quantidade_necessaria DESC`,
+      [empresa_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao buscar alertas', detalhe: String(err) });
+  }
+};
+</file>
+
+<file path="api/src/middleware/auth.ts">
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import { JwtPayload } from '../types';
+
+export const autenticar = (req: Request, res: Response, next: NextFunction): void => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ erro: 'Token não fornecido' });
+    return;
+  }
+  try {
+    const payload = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET!) as JwtPayload;
+    req.usuario = payload;
+    next();
+  } catch {
+    res.status(401).json({ erro: 'Token inválido ou expirado' });
+  }
+};
+
+export const autorizar = (...perfis: string[]) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.usuario || !perfis.includes(req.usuario.perfil)) {
+      res.status(403).json({ erro: 'Permissão insuficiente' });
+      return;
+    }
+    next();
+  };
+};
+</file>
+
+<file path="api/src/routes/index.ts">
+import { Router } from 'express';
+import { autenticar, autorizar } from '../middleware/auth';
+import * as auth from '../controllers/authController';
+import * as c from '../controllers/mainController';
+import * as produtos from '../controllers/produtosController';
+
+const router = Router();
+
+// ─── AUTH & EMPRESA ───────────────────────────────────────────────────────────
+router.post('/auth/registrar', auth.registrar);           // cria conta + empresa
+router.post('/auth/login', auth.login);
+router.get('/auth/perfil', autenticar, auth.meuPerfil);
+router.put('/auth/alterar-senha', autenticar, auth.alterarSenha);
+
+// ─── MINHA EMPRESA ────────────────────────────────────────────────────────────
+router.get('/empresa', autenticar, auth.minhaEmpresa);
+router.put('/empresa', autenticar, autorizar('admin'), auth.atualizarEmpresa);
+router.get('/empresa/usuarios', autenticar, autorizar('admin', 'gerente'), auth.listarUsuarios);
+router.post('/empresa/usuarios/convidar', autenticar, autorizar('admin'), auth.convidarUsuario);
+
+// ─── CATEGORIAS ───────────────────────────────────────────────────────────────
+router.get('/categorias', autenticar, c.listarCategorias);
+router.post('/categorias', autenticar, autorizar('admin', 'gerente'), c.criarCategoria);
+router.put('/categorias/:id', autenticar, autorizar('admin', 'gerente'), c.atualizarCategoria);
+router.delete('/categorias/:id', autenticar, autorizar('admin'), c.removerCategoria);
+
+// ─── FORNECEDORES ─────────────────────────────────────────────────────────────
+router.get('/fornecedores', autenticar, c.listarFornecedores);
+router.get('/fornecedores/:id', autenticar, c.buscarFornecedorPorId);
+router.get('/fornecedores/:id/produtos', autenticar, c.produtosPorFornecedor);
+router.post('/fornecedores', autenticar, autorizar('admin', 'gerente'), c.criarFornecedor);
+router.put('/fornecedores/:id', autenticar, autorizar('admin', 'gerente'), c.atualizarFornecedor);
+router.delete('/fornecedores/:id', autenticar, autorizar('admin'), c.removerFornecedor);
+
+// ─── PRODUTOS ─────────────────────────────────────────────────────────────────
+router.get('/produtos', autenticar, produtos.listar);
+router.get('/produtos/alertas/abaixo-minimo', autenticar, produtos.abaixoMinimo);
+router.get('/produtos/:id', autenticar, produtos.buscarPorId);
+router.get('/produtos/:id/historico', autenticar, produtos.historico);
+router.post('/produtos', autenticar, autorizar('admin', 'gerente'), produtos.criar);
+router.put('/produtos/:id', autenticar, autorizar('admin', 'gerente'), produtos.atualizar);
+router.delete('/produtos/:id', autenticar, autorizar('admin'), produtos.remover);
+
+// ─── ESTOQUE ──────────────────────────────────────────────────────────────────
+router.get('/estoque', autenticar, c.listarEstoque);
+router.get('/estoque/resumo', autenticar, c.resumoEstoque);
+router.post('/estoque/ajuste', autenticar, autorizar('admin', 'gerente'), c.ajustarEstoque);
+
+// ─── MOVIMENTAÇÕES ────────────────────────────────────────────────────────────
+router.get('/movimentacoes', autenticar, c.listarMovimentacoes);
+router.get('/movimentacoes/:id', autenticar, c.buscarMovimentacaoPorId);
+router.post('/movimentacoes/entrada', autenticar, c.registrarEntrada);
+router.post('/movimentacoes/saida', autenticar, c.registrarSaida);
+
+// ─── ORDENS DE COMPRA ─────────────────────────────────────────────────────────
+router.get('/ordens-compra', autenticar, c.listarOrdens);
+router.get('/ordens-compra/:id', autenticar, c.buscarOrdemPorId);
+router.post('/ordens-compra', autenticar, autorizar('admin', 'gerente'), c.criarOrdem);
+router.patch('/ordens-compra/:id/status', autenticar, autorizar('admin', 'gerente'), c.atualizarStatusOrdem);
+
+// ─── RELATÓRIOS ───────────────────────────────────────────────────────────────
+router.get('/relatorios/dashboard', autenticar, c.dashboard);
+router.get('/relatorios/valorizacao-estoque', autenticar, c.valorizacaoEstoque);
+router.get('/relatorios/movimentacoes-periodo', autenticar, c.movimentacoesPorPeriodo);
+router.get('/relatorios/produtos-mais-movimentados', autenticar, c.produtosMaisMovimentados);
+
+export default router;
+</file>
+
+<file path="api/src/server.ts">
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import dotenv from 'dotenv';
+import routes from './routes';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+app.use(helmet());
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+app.use('/api/v1', routes);
+
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', versao: '2.0.0-multitenant', timestamp: new Date().toISOString() });
+});
+
+app.use((_req, res) => res.status(404).json({ erro: 'Rota não encontrada' }));
+
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error(err.stack);
+  res.status(500).json({ erro: 'Erro interno do servidor' });
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 API Multi-Tenant rodando na porta ${PORT}`);
+  console.log(`📋 http://localhost:${PORT}/api/v1`);
+});
+
+export default app;
+</file>
+
+<file path="api/src/types/index.ts">
+export interface JwtPayload {
+  id: string;
+  email: string;
+  perfil: string;
+  empresa_id: string;
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      usuario?: JwtPayload;
+    }
+  }
+}
+</file>
+
+<file path="api/tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
+</file>
+
+</files>
