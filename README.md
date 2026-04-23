@@ -1,4 +1,4 @@
-# API Estoque Multi-Tenant
+# API Estoque Flow
 
 API REST para gerenciamento de estoque com suporte multi-tenant — cada conta cria sua própria empresa isolada, com usuários, produtos, movimentações e ordens de compra separados por `empresa_id`.
 
