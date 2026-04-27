@@ -2,6 +2,8 @@
 
 API REST para gerenciamento de estoque com suporte multi-tenant — cada conta cria sua própria empresa isolada, com usuários, produtos, movimentações e ordens de compra separados por `empresa_id`.
 
+**Link do Projeto Online:** `https://estoque-flow-ten.vercel.app/`
+
 **Produção:** `https://api-estoque-flow-1.onrender.com`  
 **Local:** `http://localhost:3001`
 
